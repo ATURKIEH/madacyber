@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor files
+.idea/
+*.swp
+*.swo
+*~
+
+# Output directories (if you don't want to commit example outputs)
+# You might want to commit empty placeholder directories if the script expects them
+# but generally, generated output is not committed.
+# Example:
+# lak_edu_lb_*/
+# mymada_com_*/
+# google_com_*/
+# (Be more specific if you want to exclude all such folders)
+# Or, if you want to commit the structure but not the content:
+# lak_edu_lb_*/*
+# !lak_edu_lb_*/.gitkeep
+# (This is more advanced, for now, just consider excluding them)
+
+# Specific output files (if you don't commit output directories)
+# *_crtsh_raw_output.json
+# *_crtsh_processed_hostnames.txt
+# *_ffuf_prefixes.txt
+# *_final_combined_hostnames.txt
+# *_gospider_all_findings.txt
+# *_gau_output.txt
+# *_ffuf_results.json # If you keep this temp file
+
+# Other
+.DS_Store
+Thumbs.db
