@@ -1,0 +1,7 @@
+https://portal.mymada.com
+https://portal.mymada.com/
+https://portal.mymada.com/fwb/ajaxcheck
+https://portal.mymada.com/fwb/ajaxhook.min.js
+https://portal.mymada.com/fwb/fwb/ajaxcheck
+https://portal.mymada.com/fwb/mitb_check.js?mitb_clt744=4m8UqOnSb9+ujKWjVqKuqS5sHVAzEkbJqZn2BbtgmyxNbbAuFOq8LtPdYMV/GRCVurnw0o09f1PovnN2SXkkOekffOSbAu4G4STmZ2tKR9nsHXNb7Xkx2nx0qnQJ+bMe
+https://portal.mymada.com/fwb/mitb_check.js?mitb_clt744=4m8UqOnSb9+ujKWjVqKuqS5sHVAzEkbJqZn2BbtgmyxNbbAuFOq8LtPdYMV/GRCVurnw0o09f1PovnN2SXkkOekffOSbAu4G4STmZ2tKR9nsHXNb7Xkx2nx0qnQJ+bMe]

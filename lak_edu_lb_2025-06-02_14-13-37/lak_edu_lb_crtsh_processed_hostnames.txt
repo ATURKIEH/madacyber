@@ -1,0 +1,7 @@
+cpanel.lak.edu.lb
+cpcalendars.lak.edu.lb
+cpcontacts.lak.edu.lb
+lak.edu.lb
+mail.lak.edu.lb
+webdisk.lak.edu.lb
+webmail.lak.edu.lb
