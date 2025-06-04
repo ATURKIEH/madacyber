@@ -1,43 +1,129 @@
 # Python
+###################
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.out
+*.log
+*.tmp
+*.orig
+*.bak
+*.patch
+*.diff
 
 # Virtualenv
+###################
 .venv/
 venv/
-ENV/
+ENVOkay/
 env.bak/
 venv.bak/
+pip-wheel-metadata/
+pip-selfcheck.json, here's a comprehensive `.gitignore` file tailored to your Python project,
 
-# IDE / Editor files
+# IDE / Editor specific files
+###################
 .idea/
+*.iml
+*.iws
+.vscode including common Python ignores, IDE files, your virtual environment, the `SecLists` directory, and patterns for your timestamp/
+*.vscodeignore
+*.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehed output folders.
+
+Create a file named `.gitignore` in the root of your `mada2` project directory andthumbs.db
+ehthumbs_vista.db
+*.stackdump
+
+# Output files and directories from your script
+################ paste the following content into it:
+
+```gitignore
+# Python
+################################################################################
+__pycache__/
+*.py[cod##############################]
+# General pattern for your timestamped output folders
+# This will match folders like 'lak_edu_lb_2025-06-02_11-22-41'
+# The]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+*.exe
+*.whl
+
+# Virtualenv
+################################################################################
+.venv/
+venv/
+ENV *_ at the beginning matches any character sequence followed by an underscore
+# The final / ensures it only matches directories
+*_*-*-*_*-[0-9][0-9]-[0-9][0-9]/
+
+# If you prefer/
+env.bak/
+venv.bak/
+env/
+venv*/
+pip-freeze.txt
+requirements.txt # Often committed, but if generated and specific to local dev, can be ignored.
+                 # If you want to share to be more specific for known domain prefixes:
+# example.com_????????-??-??_??-??-??/
+# mymada_com_????????-??-??_??-??-??/
+# lak_edu_lb_????????-??-??_??-??-??/
+# google_com_????????-??-??_??-?? dependencies, commit requirements.txt.
+
+# IDE / Editor specific files
+################################################################################
+.idea/
+*.iml
+*.vscode/
+*.DS_Store
+Thumbs.db
 *.swp
 *.swo
-*~
+*-??/
 
-# Output directories (if you don't want to commit example outputs)
-# You might want to commit empty placeholder directories if the script expects them
-# but generally, generated output is not committed.
-# Example:
-# lak_edu_lb_*/
-# mymada_com_*/
-# google_com_*/
-# (Be more specific if you want to exclude all such folders)
-# Or, if you want to commit the structure but not the content:
-# lak_edu_lb_*/*
-# !lak_edu_lb_*/.gitkeep
-# (This is more advanced, for now, just consider excluding them)
+# Specific temporary/test files you listed
+#########################################
+a.py
+a.txt
+h.py
+j.py
+l # Assuming 'l' is a file. If it's a directory pattern you want, use 'l/'
 
-# Specific output files (if you don't commit output directories)
-# *_crtsh_raw_output.json
-# *_crtsh_processed_hostnames.txt
-# *_ffuf_prefixes.txt
-# *_final_combined_hostnames.txt
-# *_gospider_all_findings.txt
-# *_gau_output.txt
-# *_ffuf_results.json # If you keep this temp file
+# Large External Directories (like SecLists)
+############################################
+SecLists/
 
-# Other
-.DS_Store
-Thumbs.db
+# Operating~
+*.bak
+*.tmp
+
+# Output Directories (matching your timestamped format)
+################################################################################
+# This pattern matches "text_text_text_YYYY-MM-DD_HH-MM-SS/"
+# It should cover lak_edu_lb_2025-06-02_14-13-37/
+# and mymada_com_2025-06-02_10-53-40/
+ System specific files
+#################################
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Specific to your project if needed:
+# For example, if you have specific log files not covered by *.log
+# my_app.log

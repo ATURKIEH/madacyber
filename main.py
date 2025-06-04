@@ -11,6 +11,16 @@ from gau_module import GauRunner
 
 FFUF_OVERALL_TIMEOUT_SECONDS = 1800
 
+#---Paths----
+#ffuf
+ffuf_exe_path = "/opt/homebrew/bin/ffuf"
+wordlist_path = "/opt/seclists/SecLists/Discovery/DNS/subdomains-top1million-110000.txt"
+#gospider
+gospider_exe_path = "/Users/arefturkieh/go/bin/gospider"
+curl_exe_path = "curl"
+#gau
+gau_exe_path = "/opt/homebrew/bin/gau"
+
 
 def main():
     domain_input = input("Enter the target domain (e.g., example.com): ").strip()
@@ -55,8 +65,8 @@ def main():
     all_unique_hostnames_set = set(crtsh_processed_hostnames)
 
     print("\n--- Preparing for FFUF Execution ---")
-    ffuf_exe_path = "/opt/homebrew/bin/ffuf"
-    wordlist_path = "/opt/seclists/SecLists/Discovery/DNS/subdomains-top1million-110000.txt"
+  #  ffuf_exe_path = "/opt/homebrew/bin/ffuf"
+   # wordlist_path = "/opt/seclists/SecLists/Discovery/DNS/subdomains-top1million-110000.txt"
 
     ffuf_ready_to_run = True
     if not os.path.exists(ffuf_exe_path): print(
@@ -120,8 +130,8 @@ def main():
     gospider_live_hosts_list = []
     if os.path.exists(final_combined_filename) and os.path.getsize(final_combined_filename) > 0:
         print(f"\n--- Preparing for GoSpider Scans (Input from: {final_combined_filename}) ---")
-        gospider_exe_path = "/Users/arefturkieh/go/bin/gospider"
-        curl_exe_path = "curl"
+        #gospider_exe_path = "/Users/arefturkieh/go/bin/gospider"
+       # curl_exe_path = "curl"
         gospider_ready_to_run = True
         if not os.path.exists(gospider_exe_path): print(
             f"[!] GoSpider executable not found: '{gospider_exe_path}'. Skipping."); gospider_ready_to_run = False
@@ -163,7 +173,7 @@ def main():
     input_for_gau = gospider_live_hosts_filename if gospider_live_hosts_list else final_combined_filename
     if os.path.exists(input_for_gau) and os.path.getsize(input_for_gau) > 0:
         print(f"\n--- Preparing for GAU Scans (Input from: {input_for_gau}) ---")
-        gau_exe_path = "/opt/homebrew/bin/gau"
+      #  gau_exe_path = "/opt/homebrew/bin/gau"
         if not os.path.exists(gau_exe_path):
             print(f"[!] GAU executable not found: '{gau_exe_path}'. Skipping GAU scans.")
         else:

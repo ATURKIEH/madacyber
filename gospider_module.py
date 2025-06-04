@@ -1,4 +1,3 @@
-import shlex
 import os
 import traceback
 import datetime
@@ -8,6 +7,7 @@ from urllib.parse import urlparse, urljoin
 from command_executer import CommandExecutor
 import sys
 import subprocess
+import shlex
 
 
 class GoSpiderRunner:
@@ -39,18 +39,19 @@ class GoSpiderRunner:
             with open(self.input_hostnames_filepath, 'r', encoding='utf-8') as f:
                 for line in f:
                     hostname = line.strip()
-                    if hostname and not hostname.startswith('#'): raw_hostnames.append(hostname)
-            if not raw_hostnames: print(
-                f"[*] GoSpider: No hostnames found in {self.input_hostnames_filepath}"); return []
+                    if hostname and not hostname.startswith('#'):
+                        raw_hostnames.append(hostname)
+            if not raw_hostnames:
+                print(f"[*] GoSpider: No hostnames found in {self.input_hostnames_filepath}")
+                return []
             print(f"[*] GoSpider: Read {len(raw_hostnames)} total entries from {self.input_hostnames_filepath}.")
             processed_for_gospider = set()
             for hostname in raw_hostnames:
                 if hostname.startswith("*."):
                     base_domain = hostname[2:]
                     if '.' in base_domain:
-                        print(
-                            f"    Transforming wildcard '{hostname}' to base domain '{base_domain}' for GoSpider."); processed_for_gospider.add(
-                            base_domain)
+                        print(f"    Transforming wildcard '{hostname}' to base domain '{base_domain}' for GoSpider.")
+                        processed_for_gospider.add(base_domain)
                     else:
                         print(
                             f"    Skipping transformed wildcard '{base_domain}' from '{hostname}' (not a valid domain).")
@@ -66,8 +67,9 @@ class GoSpiderRunner:
                 print(f"[*] GoSpider: No valid hostnames remaining after filtering.")
             return valid_hostnames_for_gospider
         except Exception as e:
-            print(
-                f"[!] GoSpider: Error reading/filtering hostnames from '{self.input_hostnames_filepath}': {e}"); traceback.print_exc(); return []
+            print(f"[!] GoSpider: Error reading/filtering hostnames from '{self.input_hostnames_filepath}': {e}")
+            traceback.print_exc()
+        return []
 
     def _sanitize_hostname_for_filename(self, hostname: str) -> str:
         name = hostname.replace("*.", "wildcard_")
@@ -77,19 +79,36 @@ class GoSpiderRunner:
         name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', name)
         return name
 
-    def _is_host_live(self, hostname: str, timeout: int = GOSPIDER_LIVE_CHECK_TIMEOUT_SECONDS, url_effective=None) -> tuple[
+    def _is_host_live(self, hostname: str, timeout: int = GOSPIDER_LIVE_CHECK_TIMEOUT_SECONDS) -> tuple[
         bool, str | None, str | None]:
         print(f"    [GS LIVE CHECK] Checking liveness for: {hostname}")
         protocols_to_try = [f"https://{hostname}", f"http://{hostname}"]
+        browser_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36"
+
         for url_to_check in protocols_to_try:
-            command_string = f"{self.curl_exe_path} -Ls -o /dev/null --connect-timeout {timeout} -m {timeout + 5} -w \"%{url_effective} %{{http_code}}\\n\" \"{url_to_check}\""
-            command_parts = shlex.split(command_string)
+            command_parts = [
+                self.curl_exe_path,
+                "-L",
+                "-s",
+                "-A", browser_user_agent,
+                "--connect-timeout", str(timeout),
+                "-m", str(timeout + 10),
+                "--head",
+                "-o", "/dev/null",
+                "-w", "%{url_effective}\t%{http_code}\n",  # Tab separator
+                url_to_check
+            ]
             try:
-                result = subprocess.run(command_parts, capture_output=True, text=True, check=False)
+                result = subprocess.run(
+                    command_parts,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
                 if result.returncode == 0 and result.stdout.strip():
-                    parts = result.stdout.strip().split()
-                    if len(parts) == 2:
-                        effective_url, status_code_str = parts[0], parts[1]
+                    output_parts = result.stdout.strip().split('\t')
+                    if len(output_parts) == 2:
+                        effective_url, status_code_str = output_parts[0], output_parts[1]
                         try:
                             status_code = int(status_code_str)
                             if 200 <= status_code < 400:
@@ -97,41 +116,73 @@ class GoSpiderRunner:
                                 print(
                                     f"    [GS LIVE CHECK] Host {hostname} confirmed live at {effective_url} (Status: {status_code}).")
                                 return True, protocol, effective_url
-                            #else: print(f"[GS LIVE CHECK] Host {hostname} on {url_to_check} status {status_code} (not 2xx/3xx).")
+                            else:
+                                print(
+                                    f"    [GS LIVE CHECK] Host {hostname} on {url_to_check} responded with status {status_code} (not 2xx/3xx).")
                         except ValueError:
-                            pass  #print(f"[GS LIVE CHECK] Bad status code: '{status_code_str}' for {url_to_check}")
+                            print(
+                                f"    [GS LIVE CHECK] Could not parse status code: '{status_code_str}' from '{result.stdout.strip()}' for {url_to_check}")
+                    else:
+                        print(
+                            f"    [GS LIVE CHECK] Unexpected curl output format: '{result.stdout.strip()}' for {url_to_check}")
+                # elif result.returncode != 0:
+                # print(f"[GS LIVE CHECK]
             except FileNotFoundError:
-                print(
-                    f"[!] CURL executable not found at '{self.curl_exe_path}'. Cannot perform live check."); return False, None, None
-            except Exception:
-                pass  # print(f"    [GS LIVE CHECK with CURL] Error for {url_to_check}: {e}")
-        print(f"    [GS LIVE CHECK] Host {hostname} non-responsive or not meeting 2xx/3xx criteria.")
+                print(f"[!] CURL executable not found at '{self.curl_exe_path}'. Cannot perform live check.")
+                return False, None, None
+            except subprocess.TimeoutExpired:
+                print(f"    [GS LIVE CHECK] Subprocess call for {url_to_check} timed out (Python level).")
+            except Exception as e:
+                print(f"    [GS LIVE CHECK] Error running curl for {url_to_check}: {e}")
+
+        print(
+            f"    [GS LIVE CHECK] Host {hostname} non-responsive or not meeting 2xx/3xx criteria after trying both schemes.")
         return False, None, None
 
-    def _process_gospider_host_output_and_save_filtered(self, scanned_hostname_for_context: str,
-                                                        original_target_domain_for_scoping: str, gospider_host_dir: str,
+    def _process_gospider_host_output_and_save_filtered(self,
+                                                        scanned_hostname_for_context: str,
+                                                        original_target_domain_for_scoping: str,
+                                                        gospider_host_dir: str,
                                                         base_url_for_relative_paths: str | None):
-        print(
-            f"\n[*] GoSpider: Processing output from '{gospider_host_dir}' for '{scanned_hostname_for_context}', scoping to '{original_target_domain_for_scoping}'")
+        print(f"\n--- Debugging _process_gospider_host_output for: {scanned_hostname_for_context} ---")
+        print(f"    Gospider raw output directory to check: {gospider_host_dir}")
+        print(f"    Scoping to original domain: {original_target_domain_for_scoping}")
+        print(f"    Base URL for relative paths (URL gospider started with): {base_url_for_relative_paths}")
         files_to_scan_set = set()
         try:
-            if not os.path.isdir(gospider_host_dir): return
+            if not os.path.isdir(gospider_host_dir):
+                print(
+                    f"    [DEBUG] Gospider raw output directory '{gospider_host_dir}' does not exist or is not a directory.")
+                return
+            print(f"    Checking files in '{gospider_host_dir}':")
             for item_name in os.listdir(gospider_host_dir):
                 item_path = os.path.join(gospider_host_dir, item_name)
-                if os.path.isfile(item_path) and os.path.getsize(item_path) > 0 and not item_name.endswith(
-                        "_filtered.txt"):
+                if os.path.isfile(item_path) and \
+                        os.path.getsize(item_path) > 0 and \
+                        not item_name.endswith("_filtered.txt"):
                     files_to_scan_set.add(item_name)
-        except Exception:
-            pass
-        if not files_to_scan_set: print(f"    No non-empty raw output files found in '{gospider_host_dir}'."); return
-
+                    print(
+                        f"        Found potential gospider output file: '{item_name}' (size: {os.path.getsize(item_path)})")
+        except FileNotFoundError:
+            print(
+                f"[*] GoSpider: Output directory '{gospider_host_dir}' not found during listing. Skipping processing.")
+            return
+        except Exception as e:
+            print(f"[!] GoSpider: Error listing files in '{gospider_host_dir}': {e}")
+            return
+        if not files_to_scan_set:
+            print(
+                f"    No non-empty raw output files (excluding existing '_filtered.txt') found in '{gospider_host_dir}'.")
+            return
+        print(f"    Files to scan: {files_to_scan_set}")
         url_finder_pattern = re.compile(r"https?://[^\s\"'<>()]+")
         relative_url_finder_pattern = re.compile(r"^/[^\s\"'<>()#]+")
         gospider_prefix_pattern = re.compile(
-            r"^(?:\[(?:url|link|href|src|form|script|asset|include|javascript|subdomain|wayback|sitemap|other)\]\s*-\s*(?:\[code-\d+\]\s*-\s*)?)?(.*)$");
+            r"^(?:\[(?:url|link|href|src|form|script|asset|include|javascript|subdomain|wayback|sitemap|other)\]\s*-\s*(?:\[code-\d+\]\s*-\s*)?)?(.*)$")
         host_specific_inscope_urls = set()
         for filename in files_to_scan_set:
-            filepath = os.path.join(gospider_host_dir, filename);
+            filepath = os.path.join(gospider_host_dir, filename)
+            print(f"    Processing file: {filename}")
             extracted_from_this_file_count = 0
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as infile:
@@ -238,8 +289,7 @@ class GoSpiderRunner:
     def run_on_all(self, original_target_domain_for_scoping: str) -> list[str]:
         hostnames_to_scan = self._read_hostnames()
         if not hostnames_to_scan: return []
-
-        gospider_ran_on_these_live_hosts = []
+        gospider_ran_on_hosts = []
         try:
             os.makedirs(self.gospider_per_host_output_basedir, exist_ok=True)
             print(
@@ -251,10 +301,9 @@ class GoSpiderRunner:
         for i, current_hostname_to_scan in enumerate(hostnames_to_scan):
             print(f"\n[{i + 1}/{len(hostnames_to_scan)}] Processing Gospider target: {current_hostname_to_scan}")
             try:
-                scan_was_attempted_on_live_host = self.run_gospider_for_hostname(current_hostname_to_scan,
-                                                                                 original_target_domain_for_scoping)
-                if scan_was_attempted_on_live_host:
-                    gospider_ran_on_these_live_hosts.append(current_hostname_to_scan)
+                scan_attempted_and_live = self.run_gospider_for_hostname(current_hostname_to_scan,
+                                                                         original_target_domain_for_scoping)
+                if scan_attempted_and_live: gospider_ran_on_hosts.append(current_hostname_to_scan)
             except KeyboardInterrupt:
                 print(f"\n[WARN] GoSpider: KeyboardInterrupt in run_on_all. Stopping further scans.")
                 print(f"    Scan for '{current_hostname_to_scan}' might be incomplete.");
@@ -265,4 +314,4 @@ class GoSpiderRunner:
                 print(f"    Skipping to next host due to error with {current_hostname_to_scan}.");
                 continue
         print("\n--- GoSpider scans finished (or were interrupted earlier) ---")
-        return gospider_ran_on_these_live_hosts
+        return gospider_ran_on_hosts
