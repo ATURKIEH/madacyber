@@ -1,4 +1,3 @@
-# command_executer.py
 import subprocess
 import shlex
 import traceback
@@ -6,16 +5,13 @@ import sys
 import re
 import signal
 import os
-import datetime  # For PTY overall timeout
+import datetime
 
-# Check if pty and select are available (Unix-like systems)
+
 PTY_AVAILABLE = False
 try:
     import pty
     import select
-
-    # termios and tty might be needed for more advanced raw mode control,
-    # but Popen with pty handles basic TTY emulation.
     PTY_AVAILABLE = True
 except ImportError:
     print(
@@ -33,8 +29,6 @@ class CommandExecutor:
 
     def execute_and_collect_ffuf_prefixes(self, command_string: str, timeout_seconds: int | None = None) -> tuple[
         int | None, set]:
-        # --- This method for FFUF REMAINS THE SAME ---
-        # (Using Popen with stdout=PIPE, stderr=STDOUT, line reading, prefix collection, ANSI stripping)
         self.discovered_prefixes_from_ffuf_stdout.clear()
         if not command_string.strip():
             print("[!] No command provided to FFUF executor.")
@@ -42,8 +36,8 @@ class CommandExecutor:
         timeout_msg = f" (overall timeout: {timeout_seconds}s)" if timeout_seconds else ""
         print(f"\n>>> Executing FFUF{timeout_msg}: {command_string}")
         print("-------------------------------------------")
-        command_parts = [];
-        process = None;
+        command_parts = []
+        process = None
         exit_code = None
         try:
             command_parts = shlex.split(command_string)
@@ -81,7 +75,7 @@ class CommandExecutor:
         except FileNotFoundError:
             executable_name = command_parts[0] if command_parts else command_string.split()[
                 0] if command_string.strip() else "Unknown"
-            print(f"\n[ERROR] FFUF executable not found: '{executable_name}'.");
+            print(f"\n[ERROR] FFUF executable not found: '{executable_name}'.")
             exit_code = -100
         except KeyboardInterrupt:
             print("\n[WARN] KeyboardInterrupt in CommandExecutor (FFUF stream)!")
@@ -96,8 +90,8 @@ class CommandExecutor:
                 exit_code = 130
             print(f"\n--- FFUF (Streaming) Interrupted (Assumed Exit Code: {exit_code}) ---")
         except Exception as e:
-            print(f"\n[ERROR] Unexpected error in FFUF streaming executor: {e}");
-            traceback.print_exc();
+            print(f"\n[ERROR] Unexpected error in FFUF streaming executor: {e}")
+            traceback.print_exc()
             exit_code = -101
         finally:
             print()
@@ -109,8 +103,6 @@ class CommandExecutor:
                 elif exit_code != 130 and exit_code != -99:
                     print(f"FFUF (Streaming) command finished with error code {exit_code}.")
         return exit_code, self.discovered_prefixes_from_ffuf_stdout
-
-    # --- Method using PTY (for GOSPYDER and similar tools that are TTY-sensitive) ---
     def execute_direct_output(self, command_string: str,
                               timeout_seconds: int | None = None) -> subprocess.CompletedProcess | None:
         if not PTY_AVAILABLE:
@@ -146,53 +138,46 @@ class CommandExecutor:
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,
-                # preexec_fn=os.setsid # Make child a new session leader - can help with signals
             )
-            os.close(slave_fd)  # Parent closes its copy of the slave end
-            slave_fd = -1  # Mark as closed by parent
+            os.close(slave_fd)
+            slave_fd = -1
 
-            start_time = datetime.datetime.now()  # For the overall timeout logic
+            start_time = datetime.datetime.now()
 
-            while True:  # Loop to read from PTY and print, also checking process status
-                # 1. Check for overall timeout
+            while True:
                 if timeout_seconds:
                     if (datetime.datetime.now() - start_time).total_seconds() > timeout_seconds:
                         raise subprocess.TimeoutExpired(process.args if process else command_parts, timeout_seconds)
 
-                # 2. Check if the child process has terminated
-                if process.poll() is not None:  # poll() is non-blocking
-                    break  # Exit loop if process ended
+                if process.poll() is not None:
+                    break
 
-                # 3. Wait for master_fd to be readable (with a short timeout for select itself)
                 try:
                     rlist, _, _ = select.select([master_fd], [], [], 0.1)  # Non-blocking check
                 except ValueError:  # master_fd might have been closed if process exited very fast
                     if process.poll() is not None:
                         break
                     else:
-                        raise  # Re-raise if it's another select issue
+                        raise
 
-                if master_fd in rlist:  # If master_fd has data
+                if master_fd in rlist:  #if master_fd has data
                     try:
-                        data = os.read(master_fd, 1024)  # Read up to 1024 bytes
-                        if not data:  # EOF - child process closed its end of PTY or exited
+                        data = os.read(master_fd, 1024) #1024 bytes
+                        if not data:
                             break
-                        # Print to Python's stdout (which should be your terminal)
-                        sys.stdout.write(data.decode(errors='ignore'))  # No ANSI stripping here, let terminal handle
+                        sys.stdout.write(data.decode(errors='ignore'))
                         sys.stdout.flush()
-                    except OSError:  # Can happen if PTY is closed abruptly
+                    except OSError:
                         break
-
-                        # Process has finished (or loop broke due to EOF/OSError on PTY read), get final exit code
             if process.returncode is None:
-                process.wait(timeout=1)  # Short final wait if needed
+                process.wait(timeout=1)
             exit_code = process.returncode
 
         except subprocess.TimeoutExpired:
             print(
                 f"\n[WARN] Command '{command_parts[0] if command_parts else 'N/A'}' timed out via PTY ({timeout_seconds}s). Terminating...")
             if process and process.poll() is None:
-                process.terminate();
+                process.terminate()
                 exit_code = -99
                 try:
                     process.wait(timeout=5)
@@ -210,10 +195,10 @@ class CommandExecutor:
                 process.send_signal(signal.SIGINT)
                 try:
                     print("[INFO] Waiting for PTY child process to terminate after SIGINT (max 5s)...")
-                    process.wait(timeout=5);
+                    process.wait(timeout=5)
                     exit_code = process.returncode
                 except subprocess.TimeoutExpired:
-                    print("[WARN] PTY Child did not respond to SIGINT. Sending SIGTERM...");
+                    print("[WARN] PTY Child did not respond to SIGINT. Sending SIGTERM...")
                     process.terminate()
                     try:
                         process.wait(timeout=3); exit_code = process.returncode
@@ -228,11 +213,11 @@ class CommandExecutor:
             raise
         except FileNotFoundError:
             executable_name = command_parts[0] if command_parts and len(command_parts) > 0 else "Unknown"
-            print(f"\n[ERROR] Command executable not found: '{executable_name}'.");
+            print(f"\n[ERROR] Command executable not found: '{executable_name}'.")
             exit_code = -100
         except Exception as e:
-            print(f"\n[ERROR] Unexpected error in PTY executor: {e}");
-            traceback.print_exc();
+            print(f"\n[ERROR] Unexpected error in PTY executor: {e}")
+            traceback.print_exc()
             exit_code = -101
         finally:
             if master_fd != -1:
@@ -270,13 +255,12 @@ class CommandExecutor:
 
     def _execute_direct_output_simple_popen(self, command_string: str,
                                             timeout_seconds: int | None = None) -> subprocess.CompletedProcess | None:
-        # ... (This fallback method REMAINS THE SAME as the last syntactically correct version) ...
         if not command_string.strip(): print("No command provided."); return None
         timeout_msg = f" (timeout: {timeout_seconds}s)" if timeout_seconds else ""
         print(
             f"\n>>> Executing (simple Popen{timeout_msg}): {command_string}\n-------------------------------------------")
-        command_parts = [];
-        process = None;
+        command_parts = []
+        process = None
         exit_code = None
         try:
             command_parts = shlex.split(command_string)
@@ -293,7 +277,7 @@ class CommandExecutor:
         except KeyboardInterrupt:
             print("\n[WARN] KeyboardInterrupt (simple Popen)!")
             if process and process.poll() is None:
-                print("[WARN] Sending SIGINT...");
+                print("[WARN] Sending SIGINT...")
                 process.send_signal(signal.SIGINT)
                 try:
                     process.wait(timeout=5); exit_code = process.returncode
@@ -303,8 +287,8 @@ class CommandExecutor:
                     #exit_code = process.returncodec
                     except subprocess.TimeoutExpired: (
                         print("[WARN] SIGTERM no resp. SIGKILL..."));
-                    process.kill();
-                    process.wait();
+                    process.kill()
+                    process.wait()
                     exit_code = process.returncode
             else:
                 exit_code = 130
@@ -312,14 +296,14 @@ class CommandExecutor:
 
         except FileNotFoundError:
             executable_name = command_parts[0] if command_parts and len(command_parts) > 0 else "Unknown"
-        print(f"\n[ERROR] Executable not found (simple Popen): '{executable_name}'.");
+        print(f"\n[ERROR] Executable not found (simple Popen): '{executable_name}'.")
         exit_code: int = -100
         try:
             pass
 
 
         except Exception as e: print(f"\n[ERROR] Unexpected error (simple Popen): {e} ");traceback.print_exc();
-        exit_code = -101;
+        exit_code = -101
         try:
             pass
 

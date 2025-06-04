@@ -12,7 +12,7 @@ class GauRunner:
 
     def __init__(self,
                  input_hostnames_filepath: str,
-                 base_run_output_directory: str,  # e.g., mymada_com_2025-05-26...
+                 base_run_output_directory: str,
                  gau_exe_path: str = "gau"):
 
         if not input_hostnames_filepath: raise ValueError("Input hostnames filepath must be provided.")
@@ -21,8 +21,6 @@ class GauRunner:
         self.input_hostnames_filepath = input_hostnames_filepath
         self.base_run_output_directory = base_run_output_directory
         self.gau_exe_path = gau_exe_path
-
-        # base directory where gau's per-host raw output files will be stored
         self.gau_per_host_output_basedir = os.path.join(self.base_run_output_directory, "gau_temp_outputs")
 
         self.command_executor = CommandExecutor()
@@ -49,7 +47,7 @@ class GauRunner:
         return []
 
     def _sanitize_hostname_for_filename(self, hostname: str) -> str:
-        name = hostname.replace("*.", "wildcard_")  # Should not encounter wildcards if CrtShFetcher filters
+        name = hostname.replace("*.", "wildcard_")
         name = name.replace(":", "_")
         name = name.replace("/", "_")
         name = name.replace("\\", "_")
@@ -61,7 +59,7 @@ class GauRunner:
         output_file_for_host = os.path.join(self.gau_per_host_output_basedir, f"{sanitized_hostname}_gau_output.txt")
 
         try:
-            os.makedirs(self.gau_per_host_output_basedir, exist_ok=True)  # Ensure base output dir exists
+            os.makedirs(self.gau_per_host_output_basedir, exist_ok=True)  #ensures base output directory exists
         except OSError as e:
             print(f"[!] GAU: Error creating base output dir '{self.gau_per_host_output_basedir}': {e}")
             return
@@ -77,7 +75,7 @@ class GauRunner:
 
         try:
             command_parts = shlex.split(command_string)
-            # Use subprocess.run to capture output
+            #uses subprocess.run to capture output
             result = subprocess.run(
                 command_parts,
                 capture_output=True,
@@ -145,6 +143,6 @@ class GauRunner:
                 print(f"[!] GAU: Unexpected error processing {current_hostname_to_scan} with GAU: {e}")
                 traceback.print_exc()
                 print(f"    Skipping GAU for {current_hostname_to_scan} and continuing...")
-                continue  # Continue to the next hostname
+                continue
 
         print("\n--- GAU scans finished (or were interrupted earlier) ---")
