@@ -18,33 +18,30 @@ from gau_module import GauRunner
 #and also all the other import such as shlex, traceback, etc..
 #configurable paths
 
-#configurable paths
+
 COMMON_TOOL_DIRECTORIES = [
     os.path.expanduser("~/go/bin"),
     "/opt/homebrew/bin",
     "/usr/local/bin",
-    "/usr/bin",
-]
+    "/usr/bin"]
 DEFAULT_SECLISTS_BASE_PATHS = [
     "SecLists",
     os.path.expanduser("~/SecLists"),
     "/opt/SecLists",
-    "/usr/share/seclists"
-]
+    "/usr/share/seclists"]
+
 DEFAULT_FFUF_WORDLIST_SUFFIX = "Discovery/DNS/subdomains-top1million-110000.txt"
 FFUF_OVERALL_TIMEOUT_SECONDS = 1800
 
 
 def find_executable(tool_name: str, suggested_dirs: list[str]) -> str | None:
     found_path = shutil.which(tool_name)
-    if found_path:
-        print(f"[*] Found '{tool_name}' in system PATH: {found_path}")
-        return os.path.abspath(found_path)
+    if found_path: print(f"[*] Found '{tool_name}' in system PATH: {found_path}"); return os.path.abspath(found_path)
     for dir_path in suggested_dirs:
         expanded_dir_path = os.path.expanduser(dir_path)
         potential_path = os.path.join(expanded_dir_path, tool_name)
         if os.path.isfile(potential_path) and os.access(potential_path, os.X_OK):
-            print(f"[*] Found '{tool_name}' at common path: {potential_path}")
+            print(f"[*] Found '{tool_name}' at common path: {potential_path}");
             return os.path.abspath(potential_path)
     return None
 
@@ -53,39 +50,49 @@ def find_directory(dir_name_to_log: str, potential_paths: list[str]) -> str | No
     print(f"[*] Searching for directory '{dir_name_to_log}' in: {potential_paths}")
     for path_option in potential_paths:
         abs_path_option = os.path.abspath(os.path.expanduser(path_option))
-        if os.path.isdir(abs_path_option):
-            print(f"[*] Found directory '{dir_name_to_log}' at: {abs_path_option}")
-            return abs_path_option
-    print(f"[!] Could not find directory '{dir_name_to_log}' in any of the checked locations: {potential_paths}")
+        if os.path.isdir(abs_path_option): print(
+            f"[*] Found directory '{dir_name_to_log}' at: {abs_path_option}"); return abs_path_option
+    print(f"[!] Could not find directory '{dir_name_to_log}' in checked locations: {potential_paths}");
     return None
 
-#finds paths
+
 def main():
     print("--- Automatically Configuring Tool Paths & Settings ---")
-    ffuf_exe_path = find_executable("ffuf", COMMON_TOOL_DIRECTORIES)
-    gospider_exe_path = find_executable("gospider", COMMON_TOOL_DIRECTORIES)
-    gau_exe_path = find_executable("gau", COMMON_TOOL_DIRECTORIES)
-    curl_exe_path = find_executable("curl", COMMON_TOOL_DIRECTORIES)
-    if not ffuf_exe_path: print(f"[WARN] FFUF executable not auto-detected. Will try 'ffuf'."); ffuf_exe_path = "ffuf"
-    if not gospider_exe_path: print(
-        f"[WARN] GoSpider executable not auto-detected. Will try 'gospider'."); gospider_exe_path = "gospider"
-    if not gau_exe_path: print(f"[WARN] GAU executable not auto-detected. Will try 'gau'."); gau_exe_path = "gau"
-    if not curl_exe_path: print(f"[WARN] CURL executable not auto-detected. Will try 'curl'."); curl_exe_path = "curl"
+    ffuf_exe_path = find_executable("ffuf", COMMON_TOOL_DIRECTORIES) or "ffuf"
+    gospider_exe_path = find_executable("gospider", COMMON_TOOL_DIRECTORIES) or "gospider"
+    gau_exe_path = find_executable("gau", COMMON_TOOL_DIRECTORIES) or "gau"
+    curl_exe_path = find_executable("curl", COMMON_TOOL_DIRECTORIES) or "curl"
+    if ffuf_exe_path == "ffuf": print(f"[WARN] FFUF executable not auto-detected. Will try 'ffuf' from PATH.")
+    if gospider_exe_path == "gospider": print(
+        f"[WARN] GoSpider executable not auto-detected. Will try 'gospider' from PATH.")
+    if gau_exe_path == "gau": print(f"[WARN] GAU executable not auto-detected. Will try 'gau' from PATH.")
+    if curl_exe_path == "curl": print(f"[WARN] CURL executable not auto-detected. Will try 'curl' from PATH.")
     seclists_base_dir = find_directory("SecLists Base", DEFAULT_SECLISTS_BASE_PATHS)
     wordlist_path = None
     if seclists_base_dir:
         potential_wordlist_path = os.path.join(seclists_base_dir, DEFAULT_FFUF_WORDLIST_SUFFIX)
         if os.path.isfile(potential_wordlist_path):
-            wordlist_path = potential_wordlist_path
-            print(f"[*] Using FFUF wordlist: {wordlist_path}")
+            wordlist_path = potential_wordlist_path; print(f"[*] Using FFUF wordlist: {wordlist_path}")
         else:
-            print(
-                f"[!] Default FFUF wordlist suffix '{DEFAULT_FFUF_WORDLIST_SUFFIX}' not found inside detected SecLists base: {seclists_base_dir}")
-    if not wordlist_path:
-        print(
-            f"[WARN] FFUF wordlist could not be auto-detected. FFUF stage might fail or be skipped if wordlist is required.")
+            print(f"[!] Default FFUF wordlist suffix not found in SecLists base: {seclists_base_dir}")
+    if not wordlist_path: print(f"[WARN] FFUF wordlist could not be auto-detected. FFUF stage may fail.")
+
+    # --- GAU Configuration File ---
+    default_gau_config_name = ".gau.toml"
+    # Check if .gau.toml exists in the script's directory (project root)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_gau_config_path = os.path.join(script_dir, default_gau_config_name)
+
+    gau_config_to_use = None
+    if os.path.exists(project_gau_config_path):
+        gau_config_to_use = project_gau_config_path
+        print(f"[*] Using GAU config file found in project directory: {gau_config_to_use}")
+    else:
+        print(f"[*] GAU config file '{default_gau_config_name}' not found in project directory.")
+        print(f"    GAU will use its default configuration search paths (e.g., ~/.config/gau/gau.toml).")
+        print(f"    Ensure your API keys for OTX, URLScan, etc., are in GAU's default config if you want to use them.")
     print("----------------------------------------------------")
-#gets input and creates directories
+
     domain_input = input("\nEnter the target domain (e.g., example.com): ").strip()
     if not domain_input: print("[!] No domain entered. Exiting."); sys.exit(1)
 
@@ -93,8 +100,8 @@ def main():
     safe_domain_for_dir = domain_input.replace('.', '_')
     output_directory = f"{safe_domain_for_dir}_{timestamp}"
     try:
-        os.makedirs(output_directory, exist_ok=True);
-        print(f"[*] Output directory: {os.path.abspath(output_directory)}")
+        os.makedirs(output_directory, exist_ok=True); print(
+            f"[*] Output directory: {os.path.abspath(output_directory)}")
     except OSError as e:
         print(f"[!] Error creating output dir '{output_directory}': {e}"); output_directory = "."
 
@@ -106,13 +113,12 @@ def main():
 
     crtsh_processed_hostnames = []
     ffuf_discovered_prefixes_set = set()
-#crt fetcher
+
     print("\n--- Running CrtShFetcher ---")
     try:
         crt_fetcher = CrtShFetcher(domain_query=domain_input)
         hostnames_list_from_crtsh = crt_fetcher.run_full_process(
-            raw_json_output_path=crtsh_raw_json_filename,
-            processed_hostnames_output_path=crtsh_processed_filename)
+            raw_json_output_path=crtsh_raw_json_filename, processed_hostnames_output_path=crtsh_processed_filename)
         if hostnames_list_from_crtsh is not None: crtsh_processed_hostnames = hostnames_list_from_crtsh
     except ValueError as ve:
         print(f"[!] CrtShFetcher Init Error: {ve}")
@@ -121,7 +127,7 @@ def main():
     print("\n--- Finished CrtShFetcher Stage ---")
 
     all_unique_hostnames_set = set(crtsh_processed_hostnames)
-#ffuf execution
+
     print("\n--- Preparing for FFUF Execution ---")
     ffuf_ready_to_run = True
     if not shutil.which(ffuf_exe_path) and not (os.path.isfile(ffuf_exe_path) and os.access(ffuf_exe_path, os.X_OK)):
@@ -130,14 +136,12 @@ def main():
     if ffuf_ready_to_run and (not wordlist_path or not os.path.exists(wordlist_path)):
         print(f"[!] FFUF Wordlist not found: '{wordlist_path}'. Skipping FFUF.");
         ffuf_ready_to_run = False
-
     if ffuf_ready_to_run:
         ffuf_command_to_run = (f"{ffuf_exe_path} -u https://FUZZ.{domain_input} -w {wordlist_path} "
                                f"-H \"Host: FUZZ.{domain_input}\" -mc 200,301,302,307,401,403,405,500 -ac")
         executor_ffuf = CommandExecutor()
         try:
-            print(
-                f"\nExecuting FFUF for {domain_input} (Overall Timeout: {FFUF_OVERALL_TIMEOUT_SECONDS}s, Silent Mode).")
+            print(f"\nExecuting FFUF for {domain_input} (Overall Timeout: {FFUF_OVERALL_TIMEOUT_SECONDS}s).")
             _ffuf_exit_code, collected_prefixes = executor_ffuf.execute_and_collect_ffuf_prefixes(
                 ffuf_command_to_run, timeout_seconds=FFUF_OVERALL_TIMEOUT_SECONDS)
             if collected_prefixes: ffuf_discovered_prefixes_set.update(collected_prefixes)
@@ -179,30 +183,25 @@ def main():
             for item in sorted(list(all_unique_hostnames_set)): f.write(item + '\n')
         print(f"\n[+] Combined hostnames ({len(all_unique_hostnames_set)}) saved to {final_combined_filename}")
     else:
-        print("\n[!] No hostnames from CrtSh or FFUF. Cannot proceed further.");
-        sys.exit(1)
-# runs gospider
+        print("\n[!] No hostnames from CrtSh or FFUF. Cannot proceed further."); sys.exit(1)
+
     gospider_live_hosts_list = []
     if os.path.exists(final_combined_filename) and os.path.getsize(final_combined_filename) > 0:
         print(f"\n--- Preparing for GoSpider Scans (Input from: {final_combined_filename}) ---")
         gospider_ready_to_run = True
-        if not gospider_exe_path or (not shutil.which(gospider_exe_path) and not (
-                os.path.isfile(gospider_exe_path) and os.access(gospider_exe_path, os.X_OK))):
-            print(f"[!] GoSpider executable not found or not executable via path '{gospider_exe_path}'. Skipping.");
+        if not shutil.which(gospider_exe_path) and not (
+                os.path.isfile(gospider_exe_path) and os.access(gospider_exe_path, os.X_OK)):
+            print(f"[!] GoSpider executable not found or not executable: '{gospider_exe_path}'. Skipping.");
             gospider_ready_to_run = False
         if gospider_ready_to_run and (not curl_exe_path or (not shutil.which(curl_exe_path) and not (
                 os.path.isfile(curl_exe_path) and os.access(curl_exe_path, os.X_OK)))):
-            print(
-                f"[!] CURL executable ('{curl_exe_path}') not found or not executable. GoSpider live check will fail. Skipping GoSpider.");
+            print(f"[!] CURL executable ('{curl_exe_path}') not found. GoSpider live check may fail. Skipping.");
             gospider_ready_to_run = False
-
         if gospider_ready_to_run:
             try:
-                gospider_runner = GoSpiderRunner(
-                    input_hostnames_filepath=final_combined_filename,
-                    base_run_output_directory=output_directory,
-                    gospider_exe_path=gospider_exe_path,
-                    curl_exe_path=curl_exe_path)
+                gospider_runner = GoSpiderRunner(input_hostnames_filepath=final_combined_filename,
+                                                 base_run_output_directory=output_directory,
+                                                 gospider_exe_path=gospider_exe_path, curl_exe_path=curl_exe_path)
                 gospider_live_hosts_list = gospider_runner.run_on_all(original_target_domain_for_scoping=domain_input)
                 print(f"[*] GoSpider processing stage complete.")
                 print(
@@ -225,20 +224,21 @@ def main():
     else:
         print("\n[*] Skipping GoSpider: Input file '{final_combined_filename}' is empty or not created.")
     print("\n--- Finished GoSpider Stage ---")
-#runs gau
+
     input_for_gau = gospider_live_hosts_filename if gospider_live_hosts_list and os.path.exists(
-        gospider_live_hosts_filename) else final_combined_filename
+        gospider_live_hosts_filename) and os.path.getsize(gospider_live_hosts_filename) > 0 else final_combined_filename
     if os.path.exists(input_for_gau) and os.path.getsize(input_for_gau) > 0:
         print(f"\n--- Preparing for GAU Scans (Input from: {input_for_gau}) ---")
-        if not gau_exe_path or (not shutil.which(gau_exe_path) and not (
-                os.path.isfile(gau_exe_path) and os.access(gau_exe_path, os.X_OK))):
-            print(f"[!] GAU executable not found or not executable via path '{gau_exe_path}'. Skipping GAU scans.")
+        if not shutil.which(gau_exe_path) and not (os.path.isfile(gau_exe_path) and os.access(gau_exe_path, os.X_OK)):
+            print(f"[!] GAU executable not found or not executable: '{gau_exe_path}'. Skipping GAU scans.")
         else:
             try:
                 gau_runner = GauRunner(
                     input_hostnames_filepath=input_for_gau,
                     base_run_output_directory=output_directory,
-                    gau_exe_path=gau_exe_path)
+                    gau_exe_path=gau_exe_path,
+                    gau_config_filepath=gau_config_to_use
+                )
                 gau_runner.run_on_all()
                 print(f"[*] GAU processing stage complete.")
                 print(f"    Individual host GAU outputs are in files within: {gau_runner.gau_per_host_output_basedir}")

@@ -1,19 +1,18 @@
 import os
 import traceback
 import sys
-from command_executer import CommandExecutor
-import re
-import shlex
 import subprocess
+import shlex
+
 
 class GauRunner:
-
-    GAU_TIMEOUT_PER_HOST_SECONDS = 120  # 5 minutes/host
+    GAU_TIMEOUT_PER_HOST_SECONDS = 300  #5min/host
 
     def __init__(self,
                  input_hostnames_filepath: str,
                  base_run_output_directory: str,
-                 gau_exe_path: str = "gau"):
+                 gau_exe_path: str = "gau",
+                 gau_config_filepath: str | None = ".gau.toml"):
 
         if not input_hostnames_filepath: raise ValueError("Input hostnames filepath must be provided.")
         if not base_run_output_directory: raise ValueError("Base run output directory must be provided.")
@@ -21,9 +20,9 @@ class GauRunner:
         self.input_hostnames_filepath = input_hostnames_filepath
         self.base_run_output_directory = base_run_output_directory
         self.gau_exe_path = gau_exe_path
-        self.gau_per_host_output_basedir = os.path.join(self.base_run_output_directory, "gau_temp_outputs")
+        self.gau_config_filepath = gau_config_filepath
 
-        self.command_executor = CommandExecutor()
+        self.gau_per_host_output_basedir = os.path.join(self.base_run_output_directory, "gau_temp_outputs")
 
     def _read_hostnames(self) -> list[str]:
         hostnames = []
@@ -34,13 +33,18 @@ class GauRunner:
             with open(self.input_hostnames_filepath, 'r', encoding='utf-8') as f:
                 for line in f:
                     hostname = line.strip()
-                    if hostname and not hostname.startswith('#') and '.' in hostname:  # Basic validation
+                    if hostname and not hostname.startswith('#') and '.' in hostname and not hostname.startswith("*."):
                         hostnames.append(hostname)
-            if hostnames:
-                print(f"[*] GAU: Read {len(hostnames)} hostnames from {self.input_hostnames_filepath} for GAU.")
+                    elif hostname.startswith("*."):
+                        print(f"    GAU: Skipping wildcard '{hostname}', GAU runs on specific domains/subdomains.")
+
+            unique_hostnames = sorted(list(set(hostnames)))
+            if unique_hostnames:
+                print(
+                    f"[*] GAU: Read {len(unique_hostnames)} unique, non-wildcard hostnames from {self.input_hostnames_filepath} for GAU.")
             else:
                 print(f"[*] GAU: No valid hostnames found in {self.input_hostnames_filepath} for GAU.")
-            return sorted(list(set(hostnames)))  # sorted and unique
+            return unique_hostnames
         except Exception as e:
             print(f"[!] GAU: Error reading hostnames from '{self.input_hostnames_filepath}': {e}")
             traceback.print_exc()
@@ -48,10 +52,12 @@ class GauRunner:
 
     def _sanitize_hostname_for_filename(self, hostname: str) -> str:
         name = hostname.replace("*.", "wildcard_")
-        name = name.replace(":", "_")
-        name = name.replace("/", "_")
+        name = name.replace(":", "_");
+        name = name.replace("/", "_");
         name = name.replace("\\", "_")
-        name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', name)
+        invalid_chars = '<>:"|?*\x00-\x1F'
+        for char_to_replace in invalid_chars:
+            name = name.replace(char_to_replace, '_')
         return name
 
     def run_gau_for_hostname(self, hostname_to_scan: str):
@@ -59,59 +65,70 @@ class GauRunner:
         output_file_for_host = os.path.join(self.gau_per_host_output_basedir, f"{sanitized_hostname}_gau_output.txt")
 
         try:
-            os.makedirs(self.gau_per_host_output_basedir, exist_ok=True)  #ensures base output directory exists
+            os.makedirs(self.gau_per_host_output_basedir, exist_ok=True)
         except OSError as e:
             print(f"[!] GAU: Error creating base output dir '{self.gau_per_host_output_basedir}': {e}")
             return
 
-        command_string = (
-            f"{self.gau_exe_path} {hostname_to_scan}"
+        command_parts = [self.gau_exe_path]
+        if self.gau_config_filepath and os.path.exists(self.gau_config_filepath):
+            command_parts.extend(["--config", self.gau_config_filepath])
+            print(f"[*] GAU: Using config file: {self.gau_config_filepath}")
+        elif self.gau_config_filepath:
+            print(
+                f"[WARN] GAU: Specified config file not found: {self.gau_config_filepath}. GAU will use its default config search.")
+        else:
+            print(
+                "[*] GAU: No specific config file provided. GAU will use its default config search (e.g., ~/.config/gau/gau.toml).")
 
-        )
+        command_parts.append(hostname_to_scan)
+
+        command_string_display = " ".join(shlex.quote(part) for part in command_parts)
 
         print(f"\n--- Running GAU for {hostname_to_scan} ---")
-        print(f"GAU output will be redirected to: {output_file_for_host}")
+        print(f"GAU output will be saved to: {output_file_for_host}")
+        print(f"Executing: {command_string_display}")
 
-
+        process = None
         try:
-            command_parts = shlex.split(command_string)
-            #uses subprocess.run to capture output
-            result = subprocess.run(
+            process = subprocess.Popen(
                 command_parts,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.GAU_TIMEOUT_PER_HOST_SECONDS,
-                check=False  # Don't raise exception for non-zero exit codes
+                encoding='utf-8',
+                errors='ignore'
             )
+            stdout_data, stderr_data = process.communicate(timeout=self.GAU_TIMEOUT_PER_HOST_SECONDS)
+            exit_code = process.returncode
 
-            if result.stdout:
+            if stdout_data:
                 try:
                     with open(output_file_for_host, 'w', encoding='utf-8') as f_out:
-                        f_out.write(result.stdout)
+                        f_out.write(stdout_data)
                     print(
-                        f"[+] GAU: Output for {hostname_to_scan} saved to {output_file_for_host} ({len(result.stdout.splitlines())} lines)")
+                        f"[+] GAU: Output for {hostname_to_scan} saved to {output_file_for_host} ({len(stdout_data.splitlines())} lines)")
                 except IOError as e:
                     print(f"[!] GAU: Error writing output for {hostname_to_scan} to file: {e}")
             else:
                 print(f"[*] GAU: No stdout received from GAU for {hostname_to_scan}.")
-                # empty file created
                 open(output_file_for_host, 'w').close()
 
-            if result.returncode != 0:
-                print(f"[WARN] GAU for {hostname_to_scan} finished with exit code {result.returncode}.")
-                if result.stderr:
-                    print(f"    GAU Stderr: {result.stderr.strip()}")
+            if exit_code != 0:
+                print(f"[WARN] GAU for {hostname_to_scan} finished with exit code {exit_code}.")
+                if stderr_data: print(f"    GAU Stderr for {hostname_to_scan}:\n{stderr_data.strip()}")
             else:
                 print(f"[+] GAU: Finished successfully for {hostname_to_scan}.")
 
         except subprocess.TimeoutExpired:
-            print(
-                f"[WARN] GAU for {hostname_to_scan} timed out after {self.GAU_TIMEOUT_PER_HOST_SECONDS}s. Output file may be incomplete or empty.")
+            print(f"[WARN] GAU for {hostname_to_scan} timed out after {self.GAU_TIMEOUT_PER_HOST_SECONDS}s.")
+            if process: process.kill(); process.wait()
             open(output_file_for_host, 'a').close()
         except FileNotFoundError:
             print(f"[!] GAU: Executable not found at '{self.gau_exe_path}'. Cannot run GAU for {hostname_to_scan}.")
         except KeyboardInterrupt:
-            print(f"\n[WARN] GAU for {hostname_to_scan} interrupted by user. Output file may be incomplete.")
+            print(f"\n[WARN] GAU for {hostname_to_scan} interrupted by user.")
+            if process: process.kill(); process.wait()
             raise
         except Exception as e:
             print(f"[!] GAU: An unexpected error occurred while running GAU for {hostname_to_scan}: {e}")
@@ -137,12 +154,12 @@ class GauRunner:
                 self.run_gau_for_hostname(current_hostname_to_scan)
             except KeyboardInterrupt:
                 print(f"\n[WARN] GAU: KeyboardInterrupt caught in run_on_all. Stopping further GAU scans.")
-                print(f"    Scan for current host '{current_hostname_to_scan}' might be incomplete.")
+                print(f"    Scan for current host '{current_hostname_to_scan}' might be incomplete.");
                 break
-            except Exception as e:  # Catch other errors for a single host scan
+            except Exception as e:
                 print(f"[!] GAU: Unexpected error processing {current_hostname_to_scan} with GAU: {e}")
                 traceback.print_exc()
-                print(f"    Skipping GAU for {current_hostname_to_scan} and continuing...")
+                print(f"    Skipping GAU for {current_hostname_to_scan} and continuing...");
                 continue
 
         print("\n--- GAU scans finished (or were interrupted earlier) ---")

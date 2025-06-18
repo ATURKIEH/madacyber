@@ -1,0 +1,27 @@
+threads = 10
+verbose = true
+retries = 3
+subdomains = false
+parameters = true
+providers = ["wayback","commoncrawl","otx","urlscan"]
+blacklist = ["ttf","woff","svg","png","jpg"]
+json = false
+
+#api keys
+[urlscan]
+  apikey = "019781e6-fb0c-768a-a7e2-ec4772561d3f"
+[otx]
+  apikey = "0f5c95045885034aba12aefe524bf3cb7e7e58e1fba6d68b8a55b15740a680e4"
+
+#filters
+[filters]
+  from = ""
+  to = ""
+  matchstatuscodes = [200, 301, 302]
+  matchmimetypes = []
+  filterstatuscodes = [404, 500, 403]
+  filtermimetypes = [
+      "image/png",
+      "image/jpg",
+      "image/svg+xml"
+  ]
