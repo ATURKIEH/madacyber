@@ -1,9 +1,12 @@
+# main.py
 import sys
 import os
 import traceback
 import datetime
 import subprocess
 import shutil
+import argparse
+import re
 
 from fetcher import CrtShFetcher
 from command_executer import CommandExecutor
@@ -18,242 +21,258 @@ from gau_module import GauRunner
 #and also all the other import such as shlex, traceback, etc..
 #configurable paths
 
-
 COMMON_TOOL_DIRECTORIES = [
     os.path.expanduser("~/go/bin"),
     "/opt/homebrew/bin",
     "/usr/local/bin",
-    "/usr/bin"]
+    "/usr/bin"
+]
 DEFAULT_SECLISTS_BASE_PATHS = [
     "SecLists",
     os.path.expanduser("~/SecLists"),
     "/opt/SecLists",
-    "/usr/share/seclists"]
-
-DEFAULT_FFUF_WORDLIST_SUFFIX = "Discovery/DNS/subdomains-top1million-110000.txt"
+    "/usr/share/seclists"
+]
+DEFAULT_FFUF_WORDLIST_SUFFIX = (
+    "Discovery/DNS/subdomains-top1million-110000.txt"
+)
 FFUF_OVERALL_TIMEOUT_SECONDS = 1800
+DEFAULT_GOSPIDER_OPERATIONAL_FLAGS = (
+    "-c 10 -t 5 -d 2 --other-source --robots --sitemap --js -v "
+    "--blacklist \"jpg,jpeg,gif,css,tif,tiff,png,ttf,woff,woff2,ico,svg\" "
+    "--timeout 60"
+)
+DEFAULT_GAU_ADDITIONAL_FLAGS = "--subs --providers wayback,otx,commoncrawl,urlscan --threads 10"
+
+# Helper to sanitize folder names for output directories
+def _sanitize_folder_name(name: str) -> str:
+    # Replace any character that's not alphanumeric, dot, or dash with underscore
+    return re.sub(r'[^A-Za-z0-9\.-]+', '_', name)
 
 
 def find_executable(tool_name: str, suggested_dirs: list[str]) -> str | None:
     found_path = shutil.which(tool_name)
-    if found_path: print(f"[*] Found '{tool_name}' in system PATH: {found_path}"); return os.path.abspath(found_path)
+    if found_path:
+        print(f"[*] Found '{tool_name}' in system PATH: {found_path}")
+        return os.path.abspath(found_path)
     for dir_path in suggested_dirs:
-        expanded_dir_path = os.path.expanduser(dir_path)
-        potential_path = os.path.join(expanded_dir_path, tool_name)
-        if os.path.isfile(potential_path) and os.access(potential_path, os.X_OK):
-            print(f"[*] Found '{tool_name}' at common path: {potential_path}");
-            return os.path.abspath(potential_path)
+        expanded = os.path.expanduser(dir_path)
+        potential = os.path.join(expanded, tool_name)
+        if os.path.isfile(potential) and os.access(potential, os.X_OK):
+            print(f"[*] Found '{tool_name}' at common path: {potential}")
+            return os.path.abspath(potential)
     return None
 
 
 def find_directory(dir_name_to_log: str, potential_paths: list[str]) -> str | None:
     print(f"[*] Searching for directory '{dir_name_to_log}' in: {potential_paths}")
     for path_option in potential_paths:
-        abs_path_option = os.path.abspath(os.path.expanduser(path_option))
-        if os.path.isdir(abs_path_option): print(
-            f"[*] Found directory '{dir_name_to_log}' at: {abs_path_option}"); return abs_path_option
-    print(f"[!] Could not find directory '{dir_name_to_log}' in checked locations: {potential_paths}");
+        abs_path = os.path.abspath(os.path.expanduser(path_option))
+        if os.path.isdir(abs_path):
+            print(f"[*] Found directory '{dir_name_to_log}' at: {abs_path}")
+            return abs_path
+    print(f"[!] Could not find directory '{dir_name_to_log}' in checked locations")
     return None
 
 
-def main():
-    print("--- Automatically Configuring Tool Paths & Settings ---")
-    ffuf_exe_path = find_executable("ffuf", COMMON_TOOL_DIRECTORIES) or "ffuf"
-    gospider_exe_path = find_executable("gospider", COMMON_TOOL_DIRECTORIES) or "gospider"
-    gau_exe_path = find_executable("gau", COMMON_TOOL_DIRECTORIES) or "gau"
-    curl_exe_path = find_executable("curl", COMMON_TOOL_DIRECTORIES) or "curl"
-    if ffuf_exe_path == "ffuf": print(f"[WARN] FFUF executable not auto-detected. Will try 'ffuf' from PATH.")
-    if gospider_exe_path == "gospider": print(
-        f"[WARN] GoSpider executable not auto-detected. Will try 'gospider' from PATH.")
-    if gau_exe_path == "gau": print(f"[WARN] GAU executable not auto-detected. Will try 'gau' from PATH.")
-    if curl_exe_path == "curl": print(f"[WARN] CURL executable not auto-detected. Will try 'curl' from PATH.")
-    seclists_base_dir = find_directory("SecLists Base", DEFAULT_SECLISTS_BASE_PATHS)
-    wordlist_path = None
-    if seclists_base_dir:
-        potential_wordlist_path = os.path.join(seclists_base_dir, DEFAULT_FFUF_WORDLIST_SUFFIX)
-        if os.path.isfile(potential_wordlist_path):
-            wordlist_path = potential_wordlist_path; print(f"[*] Using FFUF wordlist: {wordlist_path}")
-        else:
-            print(f"[!] Default FFUF wordlist suffix not found in SecLists base: {seclists_base_dir}")
-    if not wordlist_path: print(f"[WARN] FFUF wordlist could not be auto-detected. FFUF stage may fail.")
+def parse_domain_and_flags(input_string: str) -> tuple[str | None, str]:
+    parts = input_string.split(None, 1)
+    domain = None
+    flags_string = ""
+    if parts:
+        if "." in parts[0] and not parts[0].startswith("-"):
+            domain = parts[0]
+        if len(parts) > 1:
+            flags_string = parts[1].strip()
+    if domain is None and flags_string:
+        print(f"[WARN] Input '{input_string}' treated as flags only, no domain parsed.")
+    return domain, flags_string
 
-    # --- GAU Configuration File ---
-    default_gau_config_name = ".gau.toml"
-    # Check if .gau.toml exists in the script's directory (project root)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_gau_config_path = os.path.join(script_dir, default_gau_config_name)
 
-    gau_config_to_use = None
-    if os.path.exists(project_gau_config_path):
-        gau_config_to_use = project_gau_config_path
-        print(f"[*] Using GAU config file found in project directory: {gau_config_to_use}")
-    else:
-        print(f"[*] GAU config file '{default_gau_config_name}' not found in project directory.")
-        print(f"    GAU will use its default configuration search paths (e.g., ~/.config/gau/gau.toml).")
-        print(f"    Ensure your API keys for OTX, URLScan, etc., are in GAU's default config if you want to use them.")
-    print("----------------------------------------------------")
-
-    domain_input = input("\nEnter the target domain (e.g., example.com): ").strip()
-    if not domain_input: print("[!] No domain entered. Exiting."); sys.exit(1)
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    safe_domain_for_dir = domain_input.replace('.', '_')
-    output_directory = f"{safe_domain_for_dir}_{timestamp}"
+def run_recon_pipeline(
+    target_domain: str,
+    gospider_additional_flags: str,
+    ffuf_exe: str,
+    wordlist: str,
+    gospider_exe: str,
+    curl_exe: str,
+    gau_exe: str,
+    gau_additional_flags: str,
+    gau_config_file: str | None,
+    main_run_base_output_directory: str
+):
+    print(f"\n\n--- Starting Full Recon Pipeline for: {target_domain} ---")
+    safe_dir = target_domain.replace(".", "_")
+    output_dir = os.path.join(main_run_base_output_directory, safe_dir)
     try:
-        os.makedirs(output_directory, exist_ok=True); print(
-            f"[*] Output directory: {os.path.abspath(output_directory)}")
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"[*] Output directory for {target_domain}: {output_dir}")
     except OSError as e:
-        print(f"[!] Error creating output dir '{output_directory}': {e}"); output_directory = "."
+        print(f"[!] Error creating output dir '{output_dir}': {e}")
+        output_dir = main_run_base_output_directory
 
-    crtsh_raw_json_filename = os.path.join(output_directory, f"{safe_domain_for_dir}_crtsh_raw_output.json")
-    crtsh_processed_filename = os.path.join(output_directory, f"{safe_domain_for_dir}_crtsh_processed_hostnames.txt")
-    ffuf_prefixes_generated_filename = os.path.join(output_directory, f"{safe_domain_for_dir}_ffuf_prefixes.txt")
-    final_combined_filename = os.path.join(output_directory, f"{safe_domain_for_dir}_final_combined_hostnames.txt")
-    gospider_live_hosts_filename = os.path.join(output_directory, f"{safe_domain_for_dir}_gospider_live_hosts.txt")
+    # file paths
+    crt_raw = os.path.join(output_dir, f"{safe_dir}_crtsh_raw.json")
+    crt_txt = os.path.join(output_dir, f"{safe_dir}_crtsh.txt")
+    ffuf_prefixes = os.path.join(output_dir, f"{safe_dir}_ffuf_prefixes.txt")
+    final_combined = os.path.join(output_dir, f"{safe_dir}_final.txt")
+    gospider_live = os.path.join(output_dir, f"{safe_dir}_gospider_live.txt")
 
-    crtsh_processed_hostnames = []
-    ffuf_discovered_prefixes_set = set()
-
+    # CRT.sh
     print("\n--- Running CrtShFetcher ---")
+    crtsh_hosts = []
     try:
-        crt_fetcher = CrtShFetcher(domain_query=domain_input)
-        hostnames_list_from_crtsh = crt_fetcher.run_full_process(
-            raw_json_output_path=crtsh_raw_json_filename, processed_hostnames_output_path=crtsh_processed_filename)
-        if hostnames_list_from_crtsh is not None: crtsh_processed_hostnames = hostnames_list_from_crtsh
-    except ValueError as ve:
-        print(f"[!] CrtShFetcher Init Error: {ve}")
+        crt = CrtShFetcher(domain_query=target_domain)
+        res = crt.run_full_process(crt_raw, crt_txt)
+        if res is not None:
+            crtsh_hosts = res
     except Exception as e:
-        print(f"[!] Error during CrtShFetcher: {e}"); traceback.print_exc()
-    print("\n--- Finished CrtShFetcher Stage ---")
+        print(f"[!] CrtShFetcher error: {e}")
+        traceback.print_exc()
+    hosts_set = set(crtsh_hosts)
 
-    all_unique_hostnames_set = set(crtsh_processed_hostnames)
-
-    print("\n--- Preparing for FFUF Execution ---")
-    ffuf_ready_to_run = True
-    if not shutil.which(ffuf_exe_path) and not (os.path.isfile(ffuf_exe_path) and os.access(ffuf_exe_path, os.X_OK)):
-        print(f"[!] FFUF executable not found or not executable: '{ffuf_exe_path}'. Skipping FFUF.");
-        ffuf_ready_to_run = False
-    if ffuf_ready_to_run and (not wordlist_path or not os.path.exists(wordlist_path)):
-        print(f"[!] FFUF Wordlist not found: '{wordlist_path}'. Skipping FFUF.");
-        ffuf_ready_to_run = False
-    if ffuf_ready_to_run:
-        ffuf_command_to_run = (f"{ffuf_exe_path} -u https://FUZZ.{domain_input} -w {wordlist_path} "
-                               f"-H \"Host: FUZZ.{domain_input}\" -mc 200,301,302,307,401,403,405,500 -ac")
-        executor_ffuf = CommandExecutor()
+    # FFUF
+    print("\n--- Running FFUF ---")
+    ffuf_ready = shutil.which(ffuf_exe) or (os.path.isfile(ffuf_exe) and os.access(ffuf_exe, os.X_OK))
+    if ffuf_ready and wordlist and os.path.exists(wordlist):
+        cmd = (
+            f"{ffuf_exe} -u https://FUZZ.{target_domain} -w {wordlist} "
+            f"-H \"Host: FUZZ.{target_domain}\" -mc 200,301,302,307,401,403,405,500 -ac"
+        )
+        exec_ffuf = CommandExecutor()
         try:
-            print(f"\nExecuting FFUF for {domain_input} (Overall Timeout: {FFUF_OVERALL_TIMEOUT_SECONDS}s).")
-            _ffuf_exit_code, collected_prefixes = executor_ffuf.execute_and_collect_ffuf_prefixes(
-                ffuf_command_to_run, timeout_seconds=FFUF_OVERALL_TIMEOUT_SECONDS)
-            if collected_prefixes: ffuf_discovered_prefixes_set.update(collected_prefixes)
+            code, prefixes = exec_ffuf.execute_and_collect_ffuf_prefixes(cmd, timeout_seconds=FFUF_OVERALL_TIMEOUT_SECONDS)
+            if prefixes:
+                hosts_set.update(prefixes)
+                with open(ffuf_prefixes, 'w', encoding='utf-8') as f:
+                    for p in sorted(prefixes):
+                        f.write(f"{p}.{target_domain}\n")
+                print(f"[+] FFUF prefixes saved: {ffuf_prefixes}")
         except KeyboardInterrupt:
-            print("\n[WARN] Main script caught FFUF KeyboardInterrupt!")
-            if hasattr(executor_ffuf, 'discovered_prefixes_from_ffuf_stdout'):
-                ffuf_discovered_prefixes_set.update(executor_ffuf.discovered_prefixes_from_ffuf_stdout)
+            print("[WARN] FFUF aborted by user.")
         except Exception as e:
-            print(f"[!] FFUF Error in Main: {e}"); traceback.print_exc()
-        if ffuf_discovered_prefixes_set:
-            print(f"\n--- Processing {len(ffuf_discovered_prefixes_set)} FFUF discovered prefixes ---")
-            ffuf_generated_hostnames_for_file = [f"{prefix}.{domain_input}" for prefix in ffuf_discovered_prefixes_set]
-            try:
-                with open(ffuf_prefixes_generated_filename, 'w', encoding='utf-8') as f:
-                    for hostname in sorted(ffuf_generated_hostnames_for_file): f.write(f"{hostname}\n")
-                print(f"[+] FFUF discovered hostnames saved to: {ffuf_prefixes_generated_filename}")
-            except IOError as e:
-                print(f"[!] Error writing FFUF hostnames: {e}")
-        elif ffuf_ready_to_run:
-            print("[*] No prefixes collected from FFUF for ffuf_prefixes.txt.")
-        if ffuf_discovered_prefixes_set:
-            temp_helper_fetcher = CrtShFetcher(domain_input)
-            newly_added_from_ffuf_count = 0
-            for prefix in ffuf_discovered_prefixes_set:
-                processed_hostname = temp_helper_fetcher._strip_www_if_present(f"{prefix}.{domain_input}")
-                if processed_hostname not in all_unique_hostnames_set:
-                    all_unique_hostnames_set.add(processed_hostname);
-                    newly_added_from_ffuf_count += 1
-            if newly_added_from_ffuf_count > 0:
-                print(f"[+] Added {newly_added_from_ffuf_count} new unique hostnames from FFUF.")
-            elif ffuf_discovered_prefixes_set:
-                print("[*] All FFUF hostnames (after www-strip) already in CrtSh results.")
+            print(f"[!] FFUF error: {e}")
+            traceback.print_exc()
     else:
-        print("[!] FFUF prerequisites not met or auto-detection failed. Skipping FFUF stage.")
-    print("\n--- Finished FFUF Stage ---")
+        print("[!] FFUF prerequisites not met; skipping FFUF.")
 
-    if all_unique_hostnames_set:
-        with open(final_combined_filename, 'w', encoding='utf-8') as f:
-            for item in sorted(list(all_unique_hostnames_set)): f.write(item + '\n')
-        print(f"\n[+] Combined hostnames ({len(all_unique_hostnames_set)}) saved to {final_combined_filename}")
+    # combine
+    if hosts_set:
+        with open(final_combined, 'w', encoding='utf-8') as f:
+            for h in sorted(hosts_set):
+                f.write(h + "\n")
+        print(f"[+] Combined hostnames saved: {final_combined}")
     else:
-        print("\n[!] No hostnames from CrtSh or FFUF. Cannot proceed further."); sys.exit(1)
+        print("[!] No hosts to scan; exiting.")
+        return
 
-    gospider_live_hosts_list = []
-    if os.path.exists(final_combined_filename) and os.path.getsize(final_combined_filename) > 0:
-        print(f"\n--- Preparing for GoSpider Scans (Input from: {final_combined_filename}) ---")
-        gospider_ready_to_run = True
-        if not shutil.which(gospider_exe_path) and not (
-                os.path.isfile(gospider_exe_path) and os.access(gospider_exe_path, os.X_OK)):
-            print(f"[!] GoSpider executable not found or not executable: '{gospider_exe_path}'. Skipping.");
-            gospider_ready_to_run = False
-        if gospider_ready_to_run and (not curl_exe_path or (not shutil.which(curl_exe_path) and not (
-                os.path.isfile(curl_exe_path) and os.access(curl_exe_path, os.X_OK)))):
-            print(f"[!] CURL executable ('{curl_exe_path}') not found. GoSpider live check may fail. Skipping.");
-            gospider_ready_to_run = False
-        if gospider_ready_to_run:
-            try:
-                gospider_runner = GoSpiderRunner(input_hostnames_filepath=final_combined_filename,
-                                                 base_run_output_directory=output_directory,
-                                                 gospider_exe_path=gospider_exe_path, curl_exe_path=curl_exe_path)
-                gospider_live_hosts_list = gospider_runner.run_on_all(original_target_domain_for_scoping=domain_input)
-                print(f"[*] GoSpider processing stage complete.")
-                print(
-                    f"    Individual host raw outputs are in subdirs within: {gospider_runner.gospider_per_host_output_basedir}")
-                print(
-                    f"    Filtered, in-scope URLs for each scanned host are saved as '_filtered.txt' files within their respective gospider raw output directories.")
-                if gospider_live_hosts_list:
-                    with open(gospider_live_hosts_filename, 'w', encoding='utf-8') as f_live:
-                        for host in gospider_live_hosts_list: f_live.write(host + '\n')
-                    print(
-                        f"[+] GoSpider confirmed {len(gospider_live_hosts_list)} live hosts. Saved to: {gospider_live_hosts_filename}")
-                else:
-                    print("[*] GoSpider did not confirm any live hosts from its input list.")
-            except KeyboardInterrupt:
-                print("\n[WARN] Main script caught GoSpider stage KeyboardInterrupt.")
-            except ValueError as ve:
-                print(f"[!] GoSpiderRunner Init Error: {ve}")
-            except Exception as e:
-                print(f"[!] Error during GoSpider stage: {e}"); traceback.print_exc()
-    else:
-        print("\n[*] Skipping GoSpider: Input file '{final_combined_filename}' is empty or not created.")
-    print("\n--- Finished GoSpider Stage ---")
+    # GoSpider
+    if os.path.exists(final_combined) and os.path.getsize(final_combined) > 0:
+        go = GoSpiderRunner(
+            input_hostnames_filepath=final_combined,
+            base_run_output_directory=output_dir,
+            gospider_exe_path=gospider_exe,
+            curl_exe_path=curl_exe,
+            additional_gospider_flags=gospider_additional_flags
+        )
+        live_hosts = go.run_on_all(original_target_domain_for_scoping=target_domain)
+        if live_hosts:
+            with open(gospider_live, 'w', encoding='utf-8') as f:
+                for u in live_hosts:
+                    f.write(u + "\n")
+            print(f"[+] Live hosts saved: {gospider_live}")
 
-    input_for_gau = gospider_live_hosts_filename if gospider_live_hosts_list and os.path.exists(
-        gospider_live_hosts_filename) and os.path.getsize(gospider_live_hosts_filename) > 0 else final_combined_filename
+    # GAU
+    input_for_gau = gospider_live if os.path.exists(gospider_live) and os.path.getsize(gospider_live) > 0 else final_combined
     if os.path.exists(input_for_gau) and os.path.getsize(input_for_gau) > 0:
-        print(f"\n--- Preparing for GAU Scans (Input from: {input_for_gau}) ---")
-        if not shutil.which(gau_exe_path) and not (os.path.isfile(gau_exe_path) and os.access(gau_exe_path, os.X_OK)):
-            print(f"[!] GAU executable not found or not executable: '{gau_exe_path}'. Skipping GAU scans.")
-        else:
-            try:
-                gau_runner = GauRunner(
-                    input_hostnames_filepath=input_for_gau,
-                    base_run_output_directory=output_directory,
-                    gau_exe_path=gau_exe_path,
-                    gau_config_filepath=gau_config_to_use
-                )
-                gau_runner.run_on_all()
-                print(f"[*] GAU processing stage complete.")
-                print(f"    Individual host GAU outputs are in files within: {gau_runner.gau_per_host_output_basedir}")
-            except KeyboardInterrupt:
-                print("\n[WARN] Main script caught GAU stage KeyboardInterrupt.")
-            except ValueError as ve:
-                print(f"[!] GauRunner Init Error: {ve}")
-            except Exception as e:
-                print(f"[!] Error during GAU stage: {e}"); traceback.print_exc()
+        print("\n--- Running GAU ---")
+        gau_r = GauRunner(
+            input_hostnames_filepath=input_for_gau,
+            base_run_output_directory=output_dir,
+            gau_exe_path=gau_exe,
+            additional_gau_flags=gau_additional_flags,
+            gau_config_filepath=gau_config_file
+        )
+        gau_r.run_on_all()
+
+    print(f"\n--- Recon complete. Results in {output_dir} ---")
+
+
+def main_entry():
+    parser = argparse.ArgumentParser(description="Comprehensive Domain Reconnaissance Tool.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-d", "--domain", help="Single domain (e.g., 'example.com')")
+    group.add_argument("-dL", "--domain-list", metavar="FILE", help="File with domains (one per line)")
+
+    parser.add_argument("--ffuf-path", default=find_executable("ffuf", COMMON_TOOL_DIRECTORIES))
+    parser.add_argument("--gospider-path", default=find_executable("gospider", COMMON_TOOL_DIRECTORIES))
+    parser.add_argument("--gau-path", default=find_executable("gau", COMMON_TOOL_DIRECTORIES))
+    parser.add_argument("--curl-path", default=find_executable("curl", COMMON_TOOL_DIRECTORIES))
+    parser.add_argument("--wordlist", default=None, help="Path to FFUF wordlist")
+    parser.add_argument("--gospider-flags", dest="gospider_common_flags", default=DEFAULT_GOSPIDER_OPERATIONAL_FLAGS,
+                        help="Flags for GoSpider scans")
+    parser.add_argument("--gau-flags", dest="gau_common_flags", default=DEFAULT_GAU_ADDITIONAL_FLAGS,
+                        help="Flags for GAU scans")
+    parser.add_argument("--gau-config", dest="gau_config_file_cmd", help="Path to .gau.toml config file")
+
+    args = parser.parse_args()
+
+    # prepare output directory name
+    if args.domain:
+        dom, _ = parse_domain_and_flags(args.domain)
+        base_name = _sanitize_folder_name(dom or "batch")
     else:
-        print(f"\n[*] Skipping GAU: Input file for GAU '{input_for_gau}' is empty or not created.")
-    print("\n--- Finished GAU Stage ---")
+        base_name = "batch"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    base_output = os.path.join(os.getcwd(), f"{base_name}_{timestamp}")
+    os.makedirs(base_output, exist_ok=True)
+    print(f"[*] Saving results into: {base_output}")
 
-    print(f"\n--- All processes finished. Output is in directory: {os.path.abspath(output_directory)} ---")
+    # determine FFUF wordlist
+    wordlist = args.wordlist
+    if not wordlist:
+        sec_dir = find_directory("SecLists", DEFAULT_SECLISTS_BASE_PATHS)
+        if sec_dir:
+            candidate = os.path.join(sec_dir, DEFAULT_FFUF_WORDLIST_SUFFIX)
+            if os.path.isfile(candidate):
+                wordlist = candidate
+
+    # determine GAU config file
+    gau_conf = None
+    if args.gau_config_file_cmd and os.path.isfile(args.gau_config_file_cmd):
+        gau_conf = os.path.abspath(args.gau_config_file_cmd)
+        print(f"[*] Using GAU config: {gau_conf}")
+
+    # gather targets
+    targets = []
+    if args.domain:
+        dom, flags = parse_domain_and_flags(args.domain)
+        targets.append((dom, flags or DEFAULT_GOSPIDER_OPERATIONAL_FLAGS, args.gau_common_flags))
+    else:
+        with open(args.domain_list, 'r', encoding='utf-8') as f:
+            for line in f:
+                dom, flags = parse_domain_and_flags(line)
+                if dom:
+                    targets.append((dom, flags or DEFAULT_GOSPIDER_OPERATIONAL_FLAGS, args.gau_common_flags))
+
+    if not targets:
+        parser.print_help()
+        sys.exit(1)
+
+    for dom, gsp_flags, gau_flags in targets:
+        run_recon_pipeline(
+            target_domain=dom,
+            gospider_additional_flags=gsp_flags,
+            ffuf_exe=args.ffuf_path,
+            wordlist=wordlist or "",
+            gospider_exe=args.gospider_path,
+            curl_exe=args.curl_path,
+            gau_exe=args.gau_path,
+            gau_additional_flags=gau_flags,
+            gau_config_file=gau_conf,
+            main_run_base_output_directory=base_output
+        )
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    main_entry()

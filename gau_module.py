@@ -1,3 +1,4 @@
+# gau_module.py
 import os
 import traceback
 import sys
@@ -6,13 +7,14 @@ import shlex
 
 
 class GauRunner:
-    GAU_TIMEOUT_PER_HOST_SECONDS = 300  #5min/host
+    GAU_TIMEOUT_PER_HOST_SECONDS = 300  # 5 minutes per host for gau
 
     def __init__(self,
                  input_hostnames_filepath: str,
                  base_run_output_directory: str,
                  gau_exe_path: str = "gau",
-                 gau_config_filepath: str | None = ".gau.toml"):
+                 additional_gau_flags: str = "",  # For flags like --subs, --providers
+                 gau_config_filepath: str | None = None):  # Optional path to gau.toml
 
         if not input_hostnames_filepath: raise ValueError("Input hostnames filepath must be provided.")
         if not base_run_output_directory: raise ValueError("Base run output directory must be provided.")
@@ -20,6 +22,7 @@ class GauRunner:
         self.input_hostnames_filepath = input_hostnames_filepath
         self.base_run_output_directory = base_run_output_directory
         self.gau_exe_path = gau_exe_path
+        self.additional_gau_flags = additional_gau_flags.strip()
         self.gau_config_filepath = gau_config_filepath
 
         self.gau_per_host_output_basedir = os.path.join(self.base_run_output_directory, "gau_temp_outputs")
@@ -55,6 +58,8 @@ class GauRunner:
         name = name.replace(":", "_");
         name = name.replace("/", "_");
         name = name.replace("\\", "_")
+        # Basic sanitization, if `re` is not imported in this module.
+        # For more robust, ensure `import re` and use `re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', name)`
         invalid_chars = '<>:"|?*\x00-\x1F'
         for char_to_replace in invalid_chars:
             name = name.replace(char_to_replace, '_')
@@ -71,7 +76,7 @@ class GauRunner:
             return
 
         command_parts = [self.gau_exe_path]
-        if self.gau_config_filepath and os.path.exists(self.gau_config_filepath):
+        if self.gau_config_filepath and os.path.isfile(self.gau_config_filepath):
             command_parts.extend(["--config", self.gau_config_filepath])
             print(f"[*] GAU: Using config file: {self.gau_config_filepath}")
         elif self.gau_config_filepath:
@@ -79,7 +84,10 @@ class GauRunner:
                 f"[WARN] GAU: Specified config file not found: {self.gau_config_filepath}. GAU will use its default config search.")
         else:
             print(
-                "[*] GAU: No specific config file provided. GAU will use its default config search (e.g., ~/.config/gau/gau.toml).")
+                f"[*] GAU: No specific config file provided to runner. GAU will use its default config search (e.g., ~/.config/gau/gau.toml).")
+
+        if self.additional_gau_flags:
+            command_parts.extend(shlex.split(self.additional_gau_flags))
 
         command_parts.append(hostname_to_scan)
 
@@ -90,6 +98,7 @@ class GauRunner:
         print(f"Executing: {command_string_display}")
 
         process = None
+        exit_code = None  # Initialize exit_code
         try:
             process = subprocess.Popen(
                 command_parts,
@@ -112,27 +121,39 @@ class GauRunner:
                     print(f"[!] GAU: Error writing output for {hostname_to_scan} to file: {e}")
             else:
                 print(f"[*] GAU: No stdout received from GAU for {hostname_to_scan}.")
+                # Create empty file to signify run attempt
                 open(output_file_for_host, 'w').close()
 
             if exit_code != 0:
                 print(f"[WARN] GAU for {hostname_to_scan} finished with exit code {exit_code}.")
-                if stderr_data: print(f"    GAU Stderr for {hostname_to_scan}:\n{stderr_data.strip()}")
+                if stderr_data:
+                    print(f"    GAU Stderr for {hostname_to_scan}:\n{stderr_data.strip()}")
             else:
                 print(f"[+] GAU: Finished successfully for {hostname_to_scan}.")
 
         except subprocess.TimeoutExpired:
             print(f"[WARN] GAU for {hostname_to_scan} timed out after {self.GAU_TIMEOUT_PER_HOST_SECONDS}s.")
-            if process: process.kill(); process.wait()
-            open(output_file_for_host, 'a').close()
+            if process:
+                process.kill()
+                process.wait()  # Ensure process is reaped
+            open(output_file_for_host, 'a').close()  # Touch file to indicate attempt
+            exit_code = -99  # Custom timeout code
         except FileNotFoundError:
             print(f"[!] GAU: Executable not found at '{self.gau_exe_path}'. Cannot run GAU for {hostname_to_scan}.")
+            exit_code = -100  # Custom file not found code
         except KeyboardInterrupt:
             print(f"\n[WARN] GAU for {hostname_to_scan} interrupted by user.")
-            if process: process.kill(); process.wait()
-            raise
+            if process:
+                process.kill()
+                process.wait()
+            exit_code = 130  # Standard interrupt code
+            raise  # Re-raise for the main loop to catch and stop if needed
         except Exception as e:
             print(f"[!] GAU: An unexpected error occurred while running GAU for {hostname_to_scan}: {e}")
             traceback.print_exc()
+            exit_code = -101  # Custom general error code
+        # No finally block needed here as Popen with communicate handles closing pipes.
+        # The print statements for exit code will happen naturally after try-except.
 
     def run_on_all(self):
         hostnames_to_scan = self._read_hostnames()
@@ -154,12 +175,12 @@ class GauRunner:
                 self.run_gau_for_hostname(current_hostname_to_scan)
             except KeyboardInterrupt:
                 print(f"\n[WARN] GAU: KeyboardInterrupt caught in run_on_all. Stopping further GAU scans.")
-                print(f"    Scan for current host '{current_hostname_to_scan}' might be incomplete.");
+                print(f"    Scan for current host '{current_hostname_to_scan}' might be incomplete.")
                 break
             except Exception as e:
                 print(f"[!] GAU: Unexpected error processing {current_hostname_to_scan} with GAU: {e}")
                 traceback.print_exc()
-                print(f"    Skipping GAU for {current_hostname_to_scan} and continuing...");
+                print(f"    Skipping GAU for {current_hostname_to_scan} and continuing...")
                 continue
 
         print("\n--- GAU scans finished (or were interrupted earlier) ---")
