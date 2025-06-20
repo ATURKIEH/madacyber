@@ -1,11 +1,10 @@
-# gospider_module.py
 import os
 import traceback
 import datetime
 import requests
 import re
 from urllib.parse import urlparse, urljoin
-from command_executer import CommandExecutor  # Ensure this filename is correct
+from command_executer import CommandExecutor
 import sys
 import subprocess
 import shlex
@@ -20,7 +19,7 @@ class GoSpiderRunner:
                  base_run_output_directory: str,
                  gospider_exe_path: str = "gospider",
                  curl_exe_path: str = "curl",
-                 additional_gospider_flags: str = ""):  # <<< ADDED/VERIFIED THIS PARAMETER
+                 additional_gospider_flags: str = ""):
 
         if not input_hostnames_filepath: raise ValueError("Input hostnames filepath must be provided.")
         if not base_run_output_directory: raise ValueError("Base run output directory must be provided.")
@@ -214,7 +213,7 @@ class GoSpiderRunner:
                          hostname_gospider_individual_output_dir]
         if self.additional_gospider_flags:  # Use the stored flags
             command_parts.extend(shlex.split(self.additional_gospider_flags))
-        else:  # Fallback to some reasonable defaults if no specific flags were passed to GoSpiderRunner instance
+        else:
             default_flags_str = "-c 10 -t 5 -d 2 --other-source --robots --sitemap --js -v --blacklist \"jpg,jpeg,gif,css,tif,tiff,png,ttf,woff,woff2,ico,svg\" --timeout 60"
             command_parts.extend(shlex.split(default_flags_str))
 

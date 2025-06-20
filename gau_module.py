@@ -1,4 +1,3 @@
-# gau_module.py
 import os
 import traceback
 import sys
@@ -7,14 +6,14 @@ import shlex
 
 
 class GauRunner:
-    GAU_TIMEOUT_PER_HOST_SECONDS = 300  # 5 minutes per host for gau
+    GAU_TIMEOUT_PER_HOST_SECONDS = 300  #5min/host
 
     def __init__(self,
                  input_hostnames_filepath: str,
                  base_run_output_directory: str,
                  gau_exe_path: str = "gau",
-                 additional_gau_flags: str = "",  # For flags like --subs, --providers
-                 gau_config_filepath: str | None = None):  # Optional path to gau.toml
+                 additional_gau_flags: str = "",
+                 gau_config_filepath: str | None = None):
 
         if not input_hostnames_filepath: raise ValueError("Input hostnames filepath must be provided.")
         if not base_run_output_directory: raise ValueError("Base run output directory must be provided.")
@@ -58,8 +57,6 @@ class GauRunner:
         name = name.replace(":", "_");
         name = name.replace("/", "_");
         name = name.replace("\\", "_")
-        # Basic sanitization, if `re` is not imported in this module.
-        # For more robust, ensure `import re` and use `re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', name)`
         invalid_chars = '<>:"|?*\x00-\x1F'
         for char_to_replace in invalid_chars:
             name = name.replace(char_to_replace, '_')
@@ -121,7 +118,6 @@ class GauRunner:
                     print(f"[!] GAU: Error writing output for {hostname_to_scan} to file: {e}")
             else:
                 print(f"[*] GAU: No stdout received from GAU for {hostname_to_scan}.")
-                # Create empty file to signify run attempt
                 open(output_file_for_host, 'w').close()
 
             if exit_code != 0:
@@ -135,25 +131,23 @@ class GauRunner:
             print(f"[WARN] GAU for {hostname_to_scan} timed out after {self.GAU_TIMEOUT_PER_HOST_SECONDS}s.")
             if process:
                 process.kill()
-                process.wait()  # Ensure process is reaped
-            open(output_file_for_host, 'a').close()  # Touch file to indicate attempt
-            exit_code = -99  # Custom timeout code
+                process.wait()
+            open(output_file_for_host, 'a').close()
+            exit_code = -99
         except FileNotFoundError:
             print(f"[!] GAU: Executable not found at '{self.gau_exe_path}'. Cannot run GAU for {hostname_to_scan}.")
-            exit_code = -100  # Custom file not found code
+            exit_code = -100
         except KeyboardInterrupt:
             print(f"\n[WARN] GAU for {hostname_to_scan} interrupted by user.")
             if process:
                 process.kill()
                 process.wait()
-            exit_code = 130  # Standard interrupt code
-            raise  # Re-raise for the main loop to catch and stop if needed
+            exit_code = 130
+            raise
         except Exception as e:
             print(f"[!] GAU: An unexpected error occurred while running GAU for {hostname_to_scan}: {e}")
             traceback.print_exc()
-            exit_code = -101  # Custom general error code
-        # No finally block needed here as Popen with communicate handles closing pipes.
-        # The print statements for exit code will happen naturally after try-except.
+            exit_code = -101
 
     def run_on_all(self):
         hostnames_to_scan = self._read_hostnames()
