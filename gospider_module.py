@@ -33,7 +33,6 @@ class GoSpiderRunner:
         self.command_executor = CommandExecutor()
 
     def _read_hostnames(self) -> list[str]:
-        # ... (This method remains unchanged from the previous correct version) ...
         raw_hostnames = []
         if not os.path.exists(self.input_hostnames_filepath): print(
             f"[!] GoSpider: Input hostnames file not found: {self.input_hostnames_filepath}"); return []
@@ -72,7 +71,6 @@ class GoSpiderRunner:
                 f"[!] GoSpider: Error reading/filtering hostnames from '{self.input_hostnames_filepath}': {e}"); traceback.print_exc(); return []
 
     def _sanitize_hostname_for_filename(self, hostname: str) -> str:
-        # ... (This method remains unchanged) ...
         name = hostname.replace("*.", "wildcard_");
         name = name.replace(":", "_");
         name = name.replace("/", "_");
@@ -82,7 +80,6 @@ class GoSpiderRunner:
 
     def _is_host_live(self, hostname: str, timeout: int = GOSPIDER_LIVE_CHECK_TIMEOUT_SECONDS) -> tuple[
         bool, str | None, str | None]:
-        # ... (This method remains unchanged - the one using curl) ...
         print(f"    [GS LIVE CHECK with CURL] Checking liveness for: {hostname}")
         protocols_to_try = [f"https://{hostname}", f"http://{hostname}"]
         browser_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36"
@@ -118,7 +115,6 @@ class GoSpiderRunner:
     def _process_gospider_host_output_and_save_filtered(self, scanned_hostname_for_context: str,
                                                         original_target_domain_for_scoping: str, gospider_host_dir: str,
                                                         base_url_for_relative_paths: str | None):
-        # ... (This method remains unchanged from the version that correctly discovers and processes files) ...
         print(
             f"\n[*] GoSpider: Processing output from '{gospider_host_dir}' for '{scanned_hostname_for_context}', scoping to '{original_target_domain_for_scoping}'")
         files_to_scan_set = set();
