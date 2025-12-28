@@ -1,0 +1,13 @@
+www
+api
+admin
+dev
+test
+staging
+beta
+mail
+cdn
+static
+auth
+login
+dashboard

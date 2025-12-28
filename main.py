@@ -37,7 +37,7 @@ DEFAULT_SECLISTS_BASE_PATHS = [
     "/usr/share/seclists"
 ]
 DEFAULT_FFUF_WORDLIST_SUFFIX = "Discovery/DNS/subdomains-top1million-110000.txt"
-FFUF_OVERALL_TIMEOUT_SECONDS = 1800
+FFUF_OVERALL_TIMEOUT_SECONDS = 300
 DEFAULT_GOSPIDER_OPERATIONAL_FLAGS = (
     "-c 10 -t 5 -d 2 --other-source --robots --sitemap --js -v "
     "--blacklist \"jpg,jpeg,gif,css,tif,tiff,png,ttf,woff,woff2,ico,svg\" --timeout 60"
@@ -95,6 +95,7 @@ def run_recon_pipeline(
     gospider_exe: str,
     curl_exe: str,
     gau_exe: str,
+    fast_mode: bool,
     gau_additional_flags: str,
     gau_config_file: str | None,
     main_run_base_output_directory: str
@@ -128,32 +129,48 @@ def run_recon_pipeline(
         hosts = []
     host_set = set(hosts)
 
+    # ---------------- FAST MODE LOGIC ----------------
+    if fast_mode:
+        print("[FAST MODE] enabled")
+        print("[FAST MODE] FFUF disabled")
+        print("[FAST MODE] GoSpider disabled")
+        print("[FAST MODE] GAU reduced to historical only")
+
+        ffuf_enabled = False
+        run_gospider = False
+        gau_additional_flags = "--providers wayback,commoncrawl --threads 3"
+    else:
+        ffuf_enabled = True
+        run_gospider = True
     # --- FFUF ---
     print_stage("--- Running FFUF ---")
-    if ffufExE:= ffuf_exe and wordlist and os.path.exists(wordlist):
-        cmd = (
-            f"{ffuf_exe} -u https://FUZZ.{target_domain} -w {wordlist} "
-            f"-H \"Host: FUZZ.{target_domain}\" -mc 200,301,302,307,401,403,405,500 -ac"
-        )
-        executor = CommandExecutor()
-        try:
-            _, prefixes = executor.execute_and_collect_ffuf_prefixes(
-                cmd, timeout_seconds=FFUF_OVERALL_TIMEOUT_SECONDS
-            )
-            if prefixes:
-                full_hosts = [f"{p}.{target_domain}" for p in prefixes]
-                host_set.update(full_hosts)
-                with open(ffuf_pref, 'w') as f:
-                    for h in sorted(full_hosts):
-                        f.write(h + "\n")
-                print_info(f"[+] FFUF discovered {len(full_hosts)} prefixes")
-                for h in sorted(full_hosts):
-                    print(f"{YELLOW}{h}{RESET}")
-        except Exception as e:
-            print_error(f"[!] FFUF error: {e}")
-            traceback.print_exc()
+
+    if not ffuf_enabled:
+        print_warn("[FAST MODE] FFUF skipped")
     else:
-        print_warn("[!] Skipping FFUF: prerequisites not met")
+        if ffuf_exe and wordlist and os.path.exists(wordlist):
+            cmd = (
+                f"{ffuf_exe} -u https://FUZZ.{target_domain} -w {wordlist} "
+                f"-H \"Host: FUZZ.{target_domain}\" "
+                f"-mc 200,301,302,307,401,403,405,500 -ac"
+            )
+            executor = CommandExecutor()
+            try:
+                _, prefixes = executor.execute_and_collect_ffuf_prefixes(
+                    cmd, timeout_seconds=FFUF_OVERALL_TIMEOUT_SECONDS
+                )
+                if prefixes:
+                    full_hosts = [f"{p}.{target_domain}" for p in prefixes]
+                    host_set.update(full_hosts)
+                    with open(ffuf_pref, 'w') as f:
+                        for h in sorted(full_hosts):
+                            f.write(h + "\n")
+                    print_info(f"[+] FFUF discovered {len(full_hosts)} prefixes")
+            except Exception as e:
+                print_error(f"[!] FFUF error: {e}")
+                traceback.print_exc()
+        else:
+            print_warn("[!] Skipping FFUF: prerequisites not met")
 
     # --- Combine ---
     if host_set:
@@ -166,26 +183,23 @@ def run_recon_pipeline(
         return
 
     # --- GoSpider ---
-    print_stage("--- Running GoSpider ---")
-    try:
-        go   = GoSpiderRunner(
-            input_hostnames_filepath=final_combined,
-            base_run_output_directory=output_dir,
-            gospider_exe_path=gospider_exe,
-            curl_exe_path=curl_exe,
-            additional_gospider_flags=gospider_additional_flags
-        )
-        live = go.run_on_all(original_target_domain_for_scoping=target_domain)
-        if live:
-            with open(gospider_live, 'w') as f:
-                for u in live:
-                    f.write(u + "\n")
-            print_info(f"[+] GoSpider live hosts: {len(live)}")
-            for u in live:
-                print(f"{GREEN}{u}{RESET}")
-    except Exception as e:
-        print_error(f"[!] GoSpider error: {e}")
-        traceback.print_exc()
+    if run_gospider:
+        print_stage("--- Running GoSpider ---")
+        try:
+            go = GoSpiderRunner(
+                input_hostnames_filepath=final_combined,
+                base_run_output_directory=output_dir,
+                gospider_exe_path=gospider_exe,
+                curl_exe_path=curl_exe,
+                additional_gospider_flags=gospider_additional_flags
+            )
+            live = go.run_on_all(original_target_domain_for_scoping=target_domain)
+        except Exception as e:
+            print_error(f"[!] GoSpider error: {e}")
+            traceback.print_exc()
+    else:
+        print_warn("[FAST MODE] GoSpider skipped")
+        live = []
 
         # --- GAU ---
     print_stage("--- Running GAU ---")
@@ -222,6 +236,7 @@ def run_recon_pipeline(
 
 # Entry point
 def main_entry():
+    FAST_MODE = os.environ.get("FAST_MODE", "0") == "1"
     parser = argparse.ArgumentParser(description="Comprehensive Domain Reconnaissance Tool.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-d", "--domain", help="Single domain (e.g., \"example.com\")")
@@ -245,7 +260,7 @@ def main_entry():
     else:
         base_name = "batch"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    base_output = os.path.join(os.getcwd(), f"{base_name}_{timestamp}")
+    base_output = f"/tmp/{base_name}_{timestamp}"
     os.makedirs(base_output, exist_ok=True)
     print_info(f"[*] Saving results into: {base_output}")
 
@@ -290,6 +305,7 @@ def main_entry():
             gospider_exe=args.gospider_path,
             curl_exe=args.curl_path,
             gau_exe=args.gau_path,
+            fast_mode=FAST_MODE,
             gau_additional_flags=gau_flags,
             gau_config_file=gau_conf,
             main_run_base_output_directory=base_output
