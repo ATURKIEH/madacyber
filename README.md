@@ -1,3 +1,11 @@
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-orange)
+![Docker](https://img.shields.io/badge/Docker-Enabled-blue)
+![Recon](https://img.shields.io/badge/Security-Recon-critical)
+![Status](https://img.shields.io/badge/Status-Production--Ready-success)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+
 # Madacyber – Subdomain Enumeration & Recon Pipeline
 
 Madacyber is a **modular subdomain enumeration and reconnaissance tool** designed to discover subdomains and historical endpoints for a given target domain.
